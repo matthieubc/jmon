@@ -1,7 +1,8 @@
 .{
     .name = .jmon,
     .version = "0.0.1",
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.15.2",
+    .fingerprint = 0x7dbfab3f1a61a687,
     .dependencies = .{},
     .paths = .{
         "build.zig",
