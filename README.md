@@ -8,13 +8,13 @@ Scaffold in progress.
 
 ## Output modes
 
-- `--output tui` for interactive mode (default on TTY)
-- `--output text` for AI/shell diagnostics
-- `--output json` for automation and robust parsing
+- TUI is default output mode.
+- `--text` for AI/shell diagnostics.
+- `--json` for automation and robust parsing.
 
 ## Quick examples
 
 ```bash
-zig build run -- --output text --once
-zig build run -- --output json --once
+zig build run -- --text --once
+zig build run -- --json --once
 ```

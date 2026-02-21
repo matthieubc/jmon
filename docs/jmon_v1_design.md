@@ -18,8 +18,8 @@ Main use case: local development anomaly detection with very low overhead for bo
   - IO activity
 - Prompt line below bars for commands and toggles.
 - Support machine-friendly output for AI tooling:
-  - Text line mode (`--output text`)
-  - JSON line mode (`--output json`)
+  - Text line mode (`--text`)
+  - JSON line mode (`--json`)
 - Optional deeper memory view for overrepresented classes.
 - Native support for macOS and Linux.
 
@@ -44,13 +44,13 @@ Main use case: local development anomaly detection with very low overhead for bo
 
 - `tui`:
   - Interactive terminal UI with bars and prompt.
-  - Default when stdout is a TTY.
+  - Default output mode.
 - `text`:
   - One stable key/value line per sample.
-  - Intended for AI agents and shell tools.
+  - Enabled by `--text`.
 - `json`:
   - One JSON object per line.
-  - Intended for robust parsing and automation.
+  - Enabled by `--json`.
 
 ### States
 
@@ -247,9 +247,10 @@ Durations accept `5s`, `10s`, `30s`, `1m`.
 
 ### CLI options
 
-- `--output tui|text|json`
+- `--text`
+- `--json`
 - `--once`
-- `--interval-ms <n>`
+- `--interval <n>`
 - `--app <pattern>`
 
 ### Text line schema
@@ -400,7 +401,7 @@ Decision guideline:
 - Renders compact 4-bar view with watermarks.
 - Supports command prompt interactions without UI flicker.
 - Runs on both macOS and Linux.
-- Supports `--output text --once` with stable parseable fields.
-- Supports `--output json --once` with one JSON object and exit code `0`.
+- Supports `--text --once` with stable parseable fields.
+- Supports `--json --once` with one JSON object and exit code `0`.
 - Can trigger async-profiler manually.
 - Can auto-detect at least `CPU_HOT` and `GC_PRESSURE` with cooldown/budget limits.

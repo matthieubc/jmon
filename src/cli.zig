@@ -1,0 +1,87 @@
+const clap = @import("clap");
+const std = @import("std");
+const types = @import("types.zig");
+
+const params = clap.parseParamsComptime(
+    \\-h, --help              Display this help and exit.
+    \\--text                  Emit text line output for AI and shell tools.
+    \\--json                  Emit JSON line output for automation.
+    \\--once                  Emit one sample and exit.
+    \\--interval <u64>        Sampling interval in milliseconds. Default: 1000.
+    \\--app <str>             Pattern to match in jcmd output. Default: Application.
+    \\
+);
+
+pub const ParsedOptions = struct {
+    options: types.Options,
+    app_pattern_owned: []u8,
+
+    pub fn deinit(self: ParsedOptions, allocator: std.mem.Allocator) void {
+        allocator.free(self.app_pattern_owned);
+    }
+};
+
+pub fn parseOptions(allocator: std.mem.Allocator) !?ParsedOptions {
+    const stderr = std.fs.File.stderr().deprecatedWriter();
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = allocator,
+    }) catch |err| {
+        try diag.reportToFile(.stderr(), err);
+        return err;
+    };
+    defer res.deinit();
+
+    if (res.args.help != 0) {
+        try printHelp();
+        return null;
+    }
+
+    if (res.args.text != 0 and res.args.json != 0) {
+        try stderr.writeAll("error: --text and --json cannot be used together\n");
+        return error.InvalidOutputFlags;
+    }
+
+    const interval_ms = res.args.interval orelse 1000;
+    if (interval_ms == 0) {
+        try stderr.writeAll("error: --interval must be > 0\n");
+        return error.InvalidInterval;
+    }
+
+    const app_pattern = res.args.app orelse "Application";
+    const app_pattern_owned = try allocator.dupe(u8, app_pattern);
+
+    return .{
+        .options = .{
+            .output = if (res.args.text != 0) .text else if (res.args.json != 0) .json else .tui,
+            .once = res.args.once != 0,
+            .interval_ms = interval_ms,
+            .app_pattern = app_pattern_owned,
+        },
+        .app_pattern_owned = app_pattern_owned,
+    };
+}
+
+fn printHelp() !void {
+    const stdout_file = std.fs.File.stdout();
+    var buf: [2048]u8 = undefined;
+    var writer = stdout_file.writer(&buf);
+
+    if (stdout_file.isTty()) {
+        try writer.interface.writeAll("\x1b[1mjmon\x1b[0m - Minimal JVM monitor with auto attach and anomaly detection\n\n");
+    } else {
+        try writer.interface.writeAll("jmon - Minimal JVM monitor with auto attach and anomaly detection\n\n");
+    }
+    try writer.interface.writeAll("Usage: jmon [OPTIONS]\n\n");
+    try writer.interface.writeAll("Options:\n");
+
+    try clap.help(&writer.interface, clap.Help, &params, .{
+        .description_on_new_line = false,
+        .description_indent = 2,
+        .indent = 2,
+        .spacing_between_parameters = 0,
+    });
+    try writer.interface.flush();
+}
