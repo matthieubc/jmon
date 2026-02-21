@@ -1,10 +1,10 @@
-# JVM monitor (jvmon) - v1 design
+# JVM monitor (jmon) - v1 design
 
 ## Goal
 
 Create a small and beautiful CLI monitor for one JVM app, with a compact default view and an extended fullscreen mode.
 
-Main use case: local development anomaly detection with very low overhead.
+Main use case: local development anomaly detection with very low overhead for both humans and AI coding tools.
 
 ## Primary requirements
 
@@ -17,6 +17,9 @@ Main use case: local development anomaly detection with very low overhead.
   - GC activity
   - IO activity
 - Prompt line below bars for commands and toggles.
+- Support machine-friendly output for AI tooling:
+  - Text line mode (`--output text`)
+  - JSON line mode (`--output json`)
 - Optional deeper memory view for overrepresented classes.
 - Native support for macOS and Linux.
 
@@ -36,6 +39,18 @@ Main use case: local development anomaly detection with very low overhead.
 - `wide`:
   - Same header/bars.
   - Additional panes: findings, top classes, threads, profiler summary.
+
+### Output formats
+
+- `tui`:
+  - Interactive terminal UI with bars and prompt.
+  - Default when stdout is a TTY.
+- `text`:
+  - One stable key/value line per sample.
+  - Intended for AI agents and shell tools.
+- `json`:
+  - One JSON object per line.
+  - Intended for robust parsing and automation.
 
 ### States
 
@@ -61,6 +76,8 @@ The monitor has four loops:
    - Draw latest snapshot.
 4. Input loop (event-driven):
    - Handle prompt commands.
+
+For `text` and `json` output modes, only discovery and sampling loops are active.
 
 If attached PID changes, watermarks and sliding windows reset.
 
@@ -201,7 +218,7 @@ Text:
 - Watermarks persist across `compact`/`wide` mode toggles.
 - Memory uses JVM max semantics; other bars track runtime peaks.
 
-## Prompt command contract (v1)
+## Prompt command contract (v1, tui mode)
 
 - `:help`
 - `:q`
@@ -225,6 +242,44 @@ Text:
 - `:findings`
 
 Durations accept `5s`, `10s`, `30s`, `1m`.
+
+## AI tool integration contract (v1)
+
+### CLI options
+
+- `--output tui|text|json`
+- `--once`
+- `--interval-ms <n>`
+- `--app <pattern>`
+
+### Text line schema
+
+Each sample is one line with stable keys:
+
+- `ts_unix_s`
+- `sample`
+- `state`
+- `app_pattern`
+- `pid`
+- `mem_used_bytes`
+- `mem_committed_bytes`
+- `mem_max_bytes`
+- `cpu_total_pct`
+- `gc_time_pct`
+- `io_disk_bps`
+- `io_net_bps`
+- `finding_count`
+
+### JSON line schema
+
+Same fields as text mode, serialized as one JSON object per line.
+
+### Behavior rules
+
+- Never render ANSI colors in `text` or `json` modes.
+- Never require prompt interaction in `text` or `json` modes.
+- `--once` emits exactly one sample and exits with code `0`.
+- On recoverable sampling errors, emit a sample with `state=LOST` and continue.
 
 ## Async-profiler integration
 
@@ -279,11 +334,12 @@ Durations accept `5s`, `10s`, `30s`, `1m`.
 
 ## Configuration (v1)
 
-`~/.config/jvmon/config.toml`:
+`~/.config/jmon/config.toml`:
 
 ```toml
 app_pattern = "Application"
 mode = "compact"
+output = "auto"
 sample_interval_ms = 1000
 render_interval_ms = 250
 
@@ -339,10 +395,12 @@ Decision guideline:
 
 ## Acceptance criteria (v1)
 
-- Starts as `jvmon`.
+- Starts as `jmon`.
 - Finds target JVM by pattern and auto-reattaches after restart.
 - Renders compact 4-bar view with watermarks.
 - Supports command prompt interactions without UI flicker.
 - Runs on both macOS and Linux.
+- Supports `--output text --once` with stable parseable fields.
+- Supports `--output json --once` with one JSON object and exit code `0`.
 - Can trigger async-profiler manually.
 - Can auto-detect at least `CPU_HOT` and `GC_PRESSURE` with cooldown/budget limits.
