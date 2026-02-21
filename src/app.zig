@@ -1,14 +1,12 @@
 const std = @import("std");
 const output = @import("output.zig");
 const sampler = @import("sampler.zig");
+const tui = @import("tui.zig");
 const types = @import("types.zig");
 
 pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !void {
     switch (opts.output) {
-        .tui => {
-            try writer.writeAll("jmon: tui mode is not implemented yet\n");
-            try writer.writeAll("use --text or --json for ai-friendly diagnostics\n");
-        },
+        .tui => try tui.run(allocator, writer, opts),
         .text, .json => try runSampling(allocator, writer, opts),
     }
 }
