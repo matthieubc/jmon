@@ -14,6 +14,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addImport("clap", clap.module("clap"));
+    if (target.result.os.tag == .macos) {
+        exe.linkSystemLibrary("proc");
+    }
 
     b.installArtifact(exe);
 

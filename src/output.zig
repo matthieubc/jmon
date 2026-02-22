@@ -20,11 +20,12 @@ pub fn writeTextSample(writer: anytype, snapshot: types.Snapshot) !void {
         try writer.writeAll("-");
     }
     try writer.print(
-        " mem_used_bytes={d} mem_committed_bytes={d} mem_max_bytes={d} cpu_total_pct={d} gc_time_pct={d} io_disk_bps={d} io_net_bps={d} finding_count={d}\n",
+        " mem_used_bytes={d} mem_committed_bytes={d} mem_max_bytes={d} mem_physical_footprint_bytes={d} cpu_total_pct={d} gc_time_pct={d} io_disk_bps={d} io_net_bps={d} finding_count={d}\n",
         .{
             snapshot.mem_used_bytes,
             snapshot.mem_committed_bytes,
             snapshot.mem_max_bytes,
+            snapshot.mem_physical_footprint_bytes,
             snapshot.cpu_total_pct,
             snapshot.gc_time_pct,
             snapshot.io_disk_bps,
@@ -54,10 +55,11 @@ pub fn writeJsonSample(writer: anytype, snapshot: types.Snapshot) !void {
         try writer.writeAll("null");
     }
 
-    try writer.print(",\"mem_used_bytes\":{d},\"mem_committed_bytes\":{d},\"mem_max_bytes\":{d},\"cpu_total_pct\":{d},\"gc_time_pct\":{d},\"io_disk_bps\":{d},\"io_net_bps\":{d},\"finding_count\":{d}}}\n", .{
+    try writer.print(",\"mem_used_bytes\":{d},\"mem_committed_bytes\":{d},\"mem_max_bytes\":{d},\"mem_physical_footprint_bytes\":{d},\"cpu_total_pct\":{d},\"gc_time_pct\":{d},\"io_disk_bps\":{d},\"io_net_bps\":{d},\"finding_count\":{d}}}\n", .{
         snapshot.mem_used_bytes,
         snapshot.mem_committed_bytes,
         snapshot.mem_max_bytes,
+        snapshot.mem_physical_footprint_bytes,
         snapshot.cpu_total_pct,
         snapshot.gc_time_pct,
         snapshot.io_disk_bps,
