@@ -35,10 +35,10 @@ print_swatch_fg() {
 
 print_jmon_palette() {
   bold; printf 'jmon memory palette (current)\n'; reset_style
-  print_swatch_fg 27  "phys"
-  print_swatch_fg 45  "used"
-  print_swatch_fg 153 "mark"
-  print_swatch_fg 195 "comm"
+  print_swatch_fg 20  "phys"
+  print_swatch_fg 51  "used"
+  print_swatch_fg 195 "mark"
+  print_swatch_fg 231 "comm"
   print_swatch_fg 250 "empty"
   printf '\n'
 }

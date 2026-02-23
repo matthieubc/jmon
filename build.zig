@@ -1,3 +1,6 @@
+// Build script for the jmon executable.
+// Defines the target, dependencies, and platform links used by Zig build commands.
+
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {

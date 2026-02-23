@@ -1,3 +1,6 @@
+// Process entrypoint for jmon.
+// Creates the allocator, parses CLI options, and hands execution to the app runtime.
+
 const app = @import("app.zig");
 const cli = @import("cli.zig");
 const std = @import("std");
