@@ -8,6 +8,7 @@ const fmtu = @import("format.zig");
 const thin_fill = tui_state.thin_fill;
 const thin_empty = tui_state.thin_empty;
 const color_empty = tui_state.color_empty;
+const io_center_rw_color = "\x1b[1;38;2;161;54;198m";
 
 pub fn renderBar(
     writer: anytype,
@@ -200,8 +201,7 @@ pub fn writeMirroredGradientWatermarkBarWithGlyphs(
         empty_glyph,
     );
 
-    if (is_tty) try writer.writeAll(center_color);
-    try writer.writeAll(center_glyph);
+    try writeStyledCenterLabel(writer, center_glyph, center_color, is_tty);
 
     try writeMirroredHalf(
         writer,
@@ -221,6 +221,29 @@ pub fn writeMirroredGradientWatermarkBarWithGlyphs(
     );
 
     if (is_tty) try writer.writeAll("\x1b[0m");
+}
+
+fn writeStyledCenterLabel(
+    writer: anytype,
+    center_glyph: []const u8,
+    center_color: []const u8,
+    is_tty: bool,
+) !void {
+    if (!is_tty) {
+        try writer.writeAll(center_glyph);
+        return;
+    }
+
+    for (center_glyph) |ch| {
+        if (ch == 'r' or ch == 'w') {
+            try writer.writeAll(io_center_rw_color);
+            try writer.writeByte(ch);
+            try writer.writeAll("\x1b[0m");
+        } else {
+            try writer.writeAll(center_color);
+            try writer.writeByte(ch);
+        }
+    }
 }
 
 pub fn writeGradientBar(

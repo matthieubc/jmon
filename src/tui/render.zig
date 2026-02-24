@@ -57,7 +57,7 @@ pub fn renderVisualFrame(
     try clearLine(writer);
     try compact.io_component.renderIoLine(writer, snapshot, peaks.disk_read_pct, peaks.disk_write_pct, main_bar_width, is_tty);
 
-    try renderScopeLegend(writer, is_tty);
+    try renderScopeLegend(writer, term_cols, is_tty);
 
     if (show_memory_chart) {
         try renderMemoryHistorySection(writer, ui, snapshot, term_cols, is_tty);
@@ -241,11 +241,16 @@ fn clearMemoryHistorySection(writer: anytype) !void {
     try clearLine(writer);
 }
 
-fn renderScopeLegend(writer: anytype, is_tty: bool) !void {
+fn renderScopeLegend(writer: anytype, term_cols: usize, is_tty: bool) !void {
     try writer.print("\x1b[{d};1H", .{legend_row});
     try clearLine(writer);
+    const legend = "(h) host-level metrics";
+    if (term_cols > legend.len) {
+        var pad = term_cols - legend.len;
+        while (pad > 0) : (pad -= 1) try writer.writeAll(" ");
+    }
     if (is_tty) try writer.writeAll("\x1b[2m");
-    try writer.writeAll("(h) host-level metrics");
+    try writer.writeAll(legend);
     if (is_tty) try writer.writeAll("\x1b[0m");
 }
 

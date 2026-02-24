@@ -33,25 +33,22 @@ pub fn renderMemoryBar(
     const base_width = @min(width, memory_line_capacity);
     const extra_capacity = memory_line_capacity - base_width;
     const footprint_extension_cells = computeMemoryFootprintExtensionCells(snapshot, total, base_width, extra_capacity);
+    var used_buf: [16]u8 = undefined;
+    const used_text = formatUsedHeapField(&used_buf, snapshot, is_tty);
 
-    try writer.writeAll("MEM ");
+    try fmtu.writeBold(writer, "MEM ", is_tty);
+    try writeUsedField(writer, used_text, snapshot.state == .ATTACHED, fill_color, is_tty);
     try bars.writeMemoryLayeredBar(writer, base_width, effective_pct, effective_peak, committed_pct, fill_color, trail_color, committed_color, is_tty);
     try writeFootprintExtensionBar(writer, footprint_extension_cells, footprint_color, is_tty);
     try writer.writeAll("\n");
 
     if (is_tty) try writer.writeAll("\x1b[2K");
     try writer.writeAll("    ");
-    var left_visible_cols: usize = 0;
-    try writer.writeAll("heap: used");
-    left_visible_cols += "heap: used".len;
-    try writeLegendSquare(writer, fill_color, is_tty);
-    left_visible_cols += 1;
-    try writer.writeAll("=");
-    left_visible_cols += 1;
-    try fmtu.writeMb(writer, snapshot.mem_used_bytes);
-    left_visible_cols += fmtu.mbVisibleLen(snapshot.mem_used_bytes);
-    try writer.writeAll(" peak");
-    left_visible_cols += " peak".len;
+    var slot_pad: usize = 0;
+    while (slot_pad < fmtu.bar_side_field_width) : (slot_pad += 1) try writer.writeAll(" ");
+    var left_visible_cols: usize = fmtu.bar_side_field_width;
+    try writer.writeAll("peak");
+    left_visible_cols += "peak".len;
     try writeLegendSquare(writer, trail_color, is_tty);
     left_visible_cols += 1;
     try writer.writeAll("=");
@@ -66,6 +63,16 @@ pub fn renderMemoryBar(
     left_visible_cols += 1;
     try fmtu.writeMb(writer, snapshot.mem_committed_bytes);
     left_visible_cols += fmtu.mbVisibleLen(snapshot.mem_committed_bytes);
+    try writer.writeAll(" phys=");
+    left_visible_cols += " phys=".len;
+    try fmtu.writeMb(writer, snapshot.mem_physical_footprint_bytes);
+    left_visible_cols += fmtu.mbVisibleLen(snapshot.mem_physical_footprint_bytes);
+    try writer.writeAll(" (");
+    left_visible_cols += " (".len;
+    try writeLegendSquare(writer, footprint_color, is_tty);
+    left_visible_cols += 1;
+    try writer.writeAll("=over heap)");
+    left_visible_cols += "=over heap)".len;
 
     const max_anchor_col = base_width;
     const max_label_visible_len = "max=".len + fmtu.mbVisibleLen(total);
@@ -77,10 +84,6 @@ pub fn renderMemoryBar(
     }
     try writer.writeAll("max=");
     try fmtu.writeMb(writer, total);
-    try writer.writeAll(" phys");
-    try writeLegendSquare(writer, footprint_color, is_tty);
-    try writer.writeAll("=");
-    try fmtu.writeMb(writer, snapshot.mem_physical_footprint_bytes);
     try writer.writeAll("\n");
 }
 
@@ -92,8 +95,9 @@ fn writeLegendSquare(writer: anytype, color: []const u8, is_tty: bool) !void {
 
 fn computeMemoryBarLineCapacity(term_cols: usize, fallback_width: usize) usize {
     if (term_cols == 0) return fallback_width;
-    if (term_cols <= 4) return @min(fallback_width, @as(usize, 1));
-    return @max(@as(usize, 1), term_cols - 4);
+    const prefix = 4 + fmtu.bar_side_field_width;
+    if (term_cols <= prefix) return @min(fallback_width, @as(usize, 1));
+    return @max(@as(usize, 1), term_cols - prefix);
 }
 
 fn computeMemoryFootprintExtensionCells(
@@ -127,4 +131,37 @@ fn writeFootprintExtensionBar(
         try writer.writeAll(tui_state.thin_fill);
     }
     if (is_tty) try writer.writeAll("\x1b[0m");
+}
+
+fn formatUsedHeapField(buf: []u8, snapshot: types.Snapshot, is_tty: bool) []const u8 {
+    _ = is_tty;
+    return std.fmt.bufPrint(buf, "{d}MB", .{bytesToMb(snapshot.mem_used_bytes)}) catch "0MB";
+}
+
+fn writeUsedField(
+    writer: anytype,
+    text: []const u8,
+    attached: bool,
+    fill_color: []const u8,
+    is_tty: bool,
+) !void {
+    const field_width = fmtu.bar_side_field_width;
+    if (!is_tty) {
+        try writer.print("{s: <" ++ std.fmt.comptimePrint("{}", .{field_width}) ++ "}", .{text});
+        return;
+    }
+    _ = fill_color;
+    const color = if (attached) fmtu.prebar_mem_color else tui_state.color_empty;
+    try writer.writeAll(color);
+    try writer.writeAll(text);
+    try writer.writeAll("\x1b[0m");
+    if (text.len < field_width) {
+        var pad = field_width - text.len;
+        while (pad > 0) : (pad -= 1) try writer.writeAll(" ");
+    }
+}
+
+fn bytesToMb(bytes: u64) u64 {
+    const mb = (@as(u128, bytes) + (1024 * 1024 / 2)) / (1024 * 1024);
+    return @as(u64, @intCast(mb));
 }

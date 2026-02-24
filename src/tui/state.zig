@@ -18,12 +18,13 @@ pub const graph_right_scale_width: usize = 10;
 pub const graph_right_gap: usize = 1;
 pub const mem_history_window_ms: i64 = 5 * 60 * 1000;
 pub const mem_history_max_points: usize = 2048;
-// Rows shifted down to reserve two lines for per-core CPU mini-bars, one spacer after GC, and one IO detail row.
-pub const prompt_row: usize = 13;
-pub const status_row: usize = 14;
-pub const legend_row: usize = 15;
-pub const graph_title_row: usize = 16;
-pub const graph_top_row: usize = 17;
+// Rows shifted down to reserve two lines for per-core CPU mini-bars, one GC details line,
+// one spacer after GC, and one IO detail row.
+pub const prompt_row: usize = 14;
+pub const status_row: usize = 15;
+pub const legend_row: usize = 16;
+pub const graph_title_row: usize = 17;
+pub const graph_top_row: usize = 18;
 pub const graph_height: usize = 10;
 pub const graph_axis_row: usize = graph_top_row + graph_height;
 pub const graph_label_row: usize = graph_axis_row + 1;

@@ -1,6 +1,6 @@
 // Compact GC section renderer.
 // Draws GC pressure, GC counters, and short GC summary text for the top panel.
-// `press=xx%` is a normalized GC pressure score from the sampler, not raw GC time.
+// `pr.=x%` is a normalized GC pressure score from the sampler, not raw GC time.
 // The score is computed in `src/sampler/gc_metrics.zig` from short-window GC time ratio
 // and old-gen occupancy, then smoothed with an EWMA before display.
 
@@ -8,6 +8,7 @@ const types = @import("../types.zig");
 const tui_state = @import("../tui/state.zig");
 const bars = @import("bars.zig");
 const fmtu = @import("format.zig");
+const std = @import("std");
 
 const color_empty = tui_state.color_empty;
 const gc_fill = "▬";
@@ -30,38 +31,20 @@ pub fn renderGcSection(
 ) !void {
     const left_half = @max(@as(usize, 1), global_bar_width / 2);
     const right_half = global_bar_width - left_half;
-    var pressure_label_buf: [16]u8 = undefined;
-    // `gc_pressure_pct` is already a 0..100 display-ready value computed by the sampler.
     const pressure_pct = if (snapshot.state == .ATTACHED) snapshot.gc_pressure_pct else 0;
-    const pressure_label = stdFmt().bufPrint(&pressure_label_buf, " press={d: >2}% ", .{pressure_pct}) catch " press= ?% ";
-    const pressure_bar_width: usize = if (left_half > pressure_label.len)
-        left_half - pressure_label.len
-    else
-        left_half;
 
-    try writer.writeAll("GC  ");
-    try writeGcPressureBar(writer, snapshot, peak_pressure_pct, pressure_bar_width, is_tty);
-    if (left_half > pressure_bar_width) {
-        const pad = left_half - pressure_bar_width;
-        if (pad >= pressure_label.len) {
-            if (pad > pressure_label.len) {
-                var n = pad - pressure_label.len;
-                while (n > 0) : (n -= 1) try writer.writeAll(" ");
-            }
-            try writePressureLabel(writer, pressure_label, pressure_bar_width, pressure_pct, is_tty);
-        } else {
-            var n = pad;
-            while (n > 0) : (n -= 1) try writer.writeAll(" ");
-        }
-    }
+    try fmtu.writeBold(writer, "GC  ", is_tty);
+    try writePressureField(writer, pressure_pct, left_half, is_tty);
+    try writeGcPressureBar(writer, snapshot, peak_pressure_pct, left_half, is_tty);
     try writeGcCountsArea(writer, snapshot, right_half, is_tty);
-    try writer.writeAll("  ");
+    try writer.writeAll("\n");
+
+    if (is_tty) try writer.writeAll("\x1b[2K");
+    try writer.writeAll("    ");
+    var pad: usize = 0;
+    while (pad < fmtu.bar_side_field_width) : (pad += 1) try writer.writeAll(" ");
     try writeGcSummary(writer, snapshot);
     try writer.writeAll("\n");
-}
-
-fn stdFmt() type {
-    return @import("std").fmt;
 }
 
 fn writeGcPressureBar(
@@ -92,57 +75,28 @@ fn writeGcPressureBar(
     );
 }
 
-fn writePressureLabel(
+fn writePressureField(
     writer: anytype,
-    label: []const u8,
-    pressure_bar_width: usize,
     pressure_pct: u8,
+    pressure_bar_width: usize,
     is_tty: bool,
 ) !void {
+    _ = pressure_bar_width;
+    var buf: [32]u8 = undefined;
+    const label = std.fmt.bufPrint(&buf, "pr.={d}%", .{pressure_pct}) catch "pr.=?%";
+    const field_width = fmtu.bar_side_field_width;
     if (!is_tty) {
-        try writer.writeAll(label);
+        try writer.print("{s: <" ++ std.fmt.comptimePrint("{}", .{field_width}) ++ "}", .{label});
         return;
     }
 
-    const std = @import("std");
-    const eq_opt = std.mem.indexOfScalar(u8, label, '=') orelse {
-        try writer.writeAll("\x1b[2m");
-        try writer.writeAll(label);
-        try writer.writeAll("\x1b[0m");
-        return;
-    };
-    const pct_opt = std.mem.indexOfScalarPos(u8, label, eq_opt + 1, '%') orelse {
-        try writer.writeAll("\x1b[2m");
-        try writer.writeAll(label);
-        try writer.writeAll("\x1b[0m");
-        return;
-    };
-
-    const num_start = eq_opt + 1;
-    const num_end = pct_opt;
-    try writer.writeAll("\x1b[2m");
-    try writer.writeAll(label[0..num_start]);
+    try writer.writeAll(fmtu.prebar_gc_color);
+    try writer.writeAll(label);
     try writer.writeAll("\x1b[0m");
-
-    if (bars.gradientLastFilledRgb(
-        pressure_bar_width,
-        pressure_pct,
-        pressure_fill_start,
-        pressure_fill_mid,
-        pressure_fill_end,
-    )) |rgb| {
-        try writer.print("\x1b[38;2;{d};{d};{d}m", .{ rgb[0], rgb[1], rgb[2] });
-        try writer.writeAll(label[num_start..num_end]);
-        try writer.writeAll("\x1b[0m");
-    } else {
-        try writer.writeAll("\x1b[2m");
-        try writer.writeAll(label[num_start..num_end]);
-        try writer.writeAll("\x1b[0m");
+    if (label.len < field_width) {
+        var pad = field_width - label.len;
+        while (pad > 0) : (pad -= 1) try writer.writeAll(" ");
     }
-
-    try writer.writeAll("\x1b[2m");
-    try writer.writeAll(label[num_end..]);
-    try writer.writeAll("\x1b[0m");
 }
 
 fn writeGcSummary(writer: anytype, snapshot: types.Snapshot) !void {

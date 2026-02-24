@@ -3,6 +3,12 @@
 
 const std = @import("std");
 
+pub const bar_side_field_width: usize = 10;
+pub const prebar_mem_color: []const u8 = "\x1b[38;5;38m";
+pub const prebar_gc_color: []const u8 = "\x1b[38;5;172m";
+pub const prebar_cpu_color: []const u8 = "\x1b[38;5;71m";
+pub const prebar_io_color: []const u8 = "\x1b[38;5;98m";
+
 pub fn decimalDigits(value: anytype) usize {
     const T = @TypeOf(value);
     var v: u64 = switch (@typeInfo(T)) {
@@ -37,4 +43,10 @@ pub fn writeQuoted(writer: anytype, value: []const u8) !void {
     try writer.writeAll("\"");
     try writer.writeAll(value);
     try writer.writeAll("\"");
+}
+
+pub fn writeBold(writer: anytype, text: []const u8, is_tty: bool) !void {
+    if (is_tty) try writer.writeAll("\x1b[1m");
+    try writer.writeAll(text);
+    if (is_tty) try writer.writeAll("\x1b[0m");
 }
