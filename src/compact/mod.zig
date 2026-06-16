@@ -39,6 +39,8 @@ pub fn writeTextFrame(writer: anytype, snapshot: types.Snapshot, state: *TextRen
     try writeTextCpuCoresLine(writer, snapshot);
     try writer.writeAll("\n");
     try writeTextIoLine(writer, snapshot);
+    try writer.writeAll("\n");
+    try writeTextDbLine(writer, snapshot);
 }
 
 pub fn renderTopLines(
@@ -147,6 +149,27 @@ fn writeTextIoLine(writer: anytype, snapshot: types.Snapshot) !void {
     try writer.print(" disk_bps={d}", .{snapshot.io_disk_bps});
     try writer.print(" net_bps={d}", .{snapshot.io_net_bps});
     try writer.print(" finding_count={d}", .{snapshot.finding_count});
+}
+
+fn writeTextDbLine(writer: anytype, snapshot: types.Snapshot) !void {
+    try writer.writeAll("db");
+    try writer.print(" attached={s}", .{if (snapshot.db_available) "true" else "false"});
+    try writer.print(" sql_per_s={d}", .{snapshot.db_sql_per_s});
+    try writer.print(" errors_per_s={d}", .{snapshot.db_errors_per_s});
+    try writer.print(" in_flight={d}", .{snapshot.db_in_flight});
+    try writer.print(" lat_avg_ms={d}.{d}", .{
+        snapshot.db_latency_avg_ms_x10 / 10,
+        snapshot.db_latency_avg_ms_x10 % 10,
+    });
+    try writer.print(" lat_p95_ms={d}.{d}", .{
+        snapshot.db_latency_p95_ms_x10 / 10,
+        snapshot.db_latency_p95_ms_x10 % 10,
+    });
+    try writer.print(" lat_max_ms={d}.{d}", .{
+        snapshot.db_latency_max_ms_x10 / 10,
+        snapshot.db_latency_max_ms_x10 % 10,
+    });
+    try writer.print(" datasource_count={d}", .{snapshot.db_datasource_count});
 }
 
 fn bytesToMb(bytes: u64) u64 {

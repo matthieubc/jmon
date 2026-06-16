@@ -2,6 +2,7 @@
 // Runs jcmd discovery and selects the target PID/app name using the configured pattern.
 
 const std = @import("std");
+const process = @import("../process.zig");
 
 pub const TargetProcess = struct {
     pid: u32,
@@ -15,22 +16,45 @@ pub const TargetProcess = struct {
 
 pub fn findTargetProcess(
     allocator: std.mem.Allocator,
+    io: std.Io,
     app_pattern: []const u8,
+    docker_container: ?[]const u8,
     pinned_pid: ?u32,
 ) ?TargetProcess {
+    if (docker_container) |container| {
+        if (findDockerTargetProcess(allocator, io, container)) |target| {
+            return target;
+        }
+        return null;
+    }
+
     const argv = [_][]const u8{ "jcmd", "-l" };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv[0..],
-        .max_output_bytes = 512 * 1024,
-    }) catch return null;
+    const result = process.run(allocator, io, argv[0..], 512 * 1024) catch return null;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
-    if (!isExit0(result.term)) return null;
+    if (!process.isExit0(result.term)) return null;
     if (pinned_pid) |pid| {
         return parseTargetProcessByPid(result.stdout, pid);
     }
     return parseTargetProcessByPattern(result.stdout, app_pattern);
+}
+
+fn findDockerTargetProcess(allocator: std.mem.Allocator, io: std.Io, container: []const u8) ?TargetProcess {
+    const argv = [_][]const u8{ "docker", "inspect", "--format", "{{.State.Pid}}", container };
+    const result = process.run(allocator, io, argv[0..], 4096) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (!process.isExit0(result.term)) return null;
+
+    const pid_str = std.mem.trim(u8, result.stdout, " \t\r\n");
+    const pid = std.fmt.parseInt(u32, pid_str, 10) catch return null;
+    if (pid == 0) return null; // Container might be stopped
+
+    var target = TargetProcess{ .pid = pid };
+    const n = @min(container.len, target.app_name_buf.len);
+    std.mem.copyForwards(u8, target.app_name_buf[0..n], container[0..n]);
+    target.app_name_len = n;
+    return target;
 }
 
 fn parseTargetProcessByPattern(output: []const u8, app_pattern: []const u8) ?TargetProcess {
@@ -75,11 +99,4 @@ fn extractAppName(line: []const u8) []const u8 {
     while (i < line.len and (line[i] == ' ' or line[i] == '\t')) : (i += 1) {}
     if (i >= line.len) return "";
     return line[i..];
-}
-
-fn isExit0(term: std.process.Child.Term) bool {
-    return switch (term) {
-        .Exited => |code| code == 0,
-        else => false,
-    };
 }

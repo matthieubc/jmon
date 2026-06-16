@@ -87,6 +87,15 @@ pub fn renderIoLine(
         is_tty,
     );
     try writer.writeAll("\n");
+
+    if (is_tty) try writer.writeAll("\x1b[2K");
+    try writer.writeAll("    ");
+    var db_buf: [192]u8 = undefined;
+    const db_summary = formatDbSummary(&db_buf, snapshot);
+    if (is_tty) try writer.writeAll("\x1b[2m");
+    try writer.writeAll(db_summary);
+    if (is_tty) try writer.writeAll("\x1b[0m");
+    try writer.writeAll("\n");
 }
 
 fn renderMirroredLabeledLine(
@@ -252,4 +261,22 @@ fn writeIoFieldText(
         try writer.writeAll(text);
         try writer.writeAll("\x1b[0m");
     }
+}
+
+fn formatDbSummary(buf: []u8, snapshot: types.Snapshot) []const u8 {
+    if (snapshot.state != .ATTACHED) return "db: no jvm attached";
+    if (!snapshot.db_available) return "db: agent metrics unavailable";
+
+    return std.fmt.bufPrint(buf, "db sql/s={d} err/s={d} in-flight={d} lat(avg/p95/max)={d}.{d}/{d}.{d}/{d}.{d}ms ds={d}", .{
+        snapshot.db_sql_per_s,
+        snapshot.db_errors_per_s,
+        snapshot.db_in_flight,
+        snapshot.db_latency_avg_ms_x10 / 10,
+        snapshot.db_latency_avg_ms_x10 % 10,
+        snapshot.db_latency_p95_ms_x10 / 10,
+        snapshot.db_latency_p95_ms_x10 % 10,
+        snapshot.db_latency_max_ms_x10 / 10,
+        snapshot.db_latency_max_ms_x10 % 10,
+        snapshot.db_datasource_count,
+    }) catch "db: metrics format error";
 }

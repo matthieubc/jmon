@@ -12,6 +12,7 @@ const max_status_len = tui_state.max_status_len;
 
 pub fn pollAndHandleCommands(
     allocator: std.mem.Allocator,
+    io: std.Io,
     ui: *UiState,
     runtime: *types.RuntimeState,
     charts: *types.ChartOptions,
@@ -42,7 +43,7 @@ pub fn pollAndHandleCommands(
                 ui.prompt_dirty = true;
             },
             '\r', '\n' => {
-                try handleCommandLine(allocator, ui, runtime, charts);
+                try handleCommandLine(allocator, io, ui, runtime, charts);
                 ui.input_len = 0;
                 ui.prompt_dirty = true;
             },
@@ -93,6 +94,7 @@ fn consumeEscapeSequenceByte(ui: *UiState, c: u8) bool {
 
 fn handleCommandLine(
     allocator: std.mem.Allocator,
+    io: std.Io,
     ui: *UiState,
     runtime: *types.RuntimeState,
     charts: *types.ChartOptions,
@@ -116,7 +118,7 @@ fn handleCommandLine(
             setStatus(ui, "gc failed: no attached jvm");
             return;
         };
-        const ok = jvm_commands.runFullGc(allocator, pid);
+        const ok = jvm_commands.runFullGc(allocator, io, pid);
         if (ok) {
             var msg: [max_status_len]u8 = undefined;
             const s = std.fmt.bufPrint(&msg, "gc requested on pid {d}", .{pid}) catch "gc requested";
@@ -172,8 +174,8 @@ fn handleChartCommand(ui: *UiState, charts: *types.ChartOptions, line: []const u
 }
 
 fn formatChartList(buf: []u8, charts: types.ChartOptions) []const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    const w = fbs.writer();
+    var writer = std.Io.Writer.fixed(buf);
+    const w = &writer;
     w.writeAll("charts: ") catch return "charts";
     var any = false;
     if (charts.memory) {
@@ -191,7 +193,7 @@ fn formatChartList(buf: []u8, charts: types.ChartOptions) []const u8 {
         any = true;
     }
     if (!any) w.writeAll("none") catch {};
-    return fbs.getWritten();
+    return buf[0..writer.end];
 }
 
 fn setStatus(ui: *UiState, text: []const u8) void {

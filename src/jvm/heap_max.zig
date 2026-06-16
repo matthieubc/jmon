@@ -2,19 +2,16 @@
 // Reads the Java process command and parses -Xmx into bytes.
 
 const std = @import("std");
+const process = @import("../process.zig");
 
-pub fn readHeapMaxBytesFromPs(allocator: std.mem.Allocator, pid: u32) ?u64 {
+pub fn readHeapMaxBytesFromPs(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?u64 {
     var pid_buf: [20]u8 = undefined;
     const pid_str = std.fmt.bufPrint(&pid_buf, "{d}", .{pid}) catch return null;
     const argv = [_][]const u8{ "ps", "-p", pid_str, "-o", "command=" };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv[0..],
-        .max_output_bytes = 128 * 1024,
-    }) catch return null;
+    const result = process.run(allocator, io, argv[0..], 128 * 1024) catch return null;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
-    if (!isExit0(result.term)) return null;
+    if (!process.isExit0(result.term)) return null;
     return parseXmxFromCommandLine(result.stdout);
 }
 
@@ -52,11 +49,4 @@ fn parseJvmSizeBytes(value_raw: []const u8) ?u64 {
 
     const base = std.fmt.parseInt(u64, digits, 10) catch return null;
     return std.math.mul(u64, base, multiplier) catch null;
-}
-
-fn isExit0(term: std.process.Child.Term) bool {
-    return switch (term) {
-        .Exited => |code| code == 0,
-        else => false,
-    };
 }

@@ -2,6 +2,7 @@
 // Reads jstat -gc output and converts localized numeric fields into typed GC metrics.
 
 const std = @import("std");
+const process = @import("../process.zig");
 
 pub const JstatGc = struct {
     heap_used_bytes: u64,
@@ -13,18 +14,14 @@ pub const JstatGc = struct {
     gct_s: f64,
 };
 
-pub fn readJstatGc(allocator: std.mem.Allocator, pid: u32) ?JstatGc {
+pub fn readJstatGc(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?JstatGc {
     var pid_buf: [20]u8 = undefined;
     const pid_str = std.fmt.bufPrint(&pid_buf, "{d}", .{pid}) catch return null;
     const argv = [_][]const u8{ "jstat", "-gc", pid_str };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv[0..],
-        .max_output_bytes = 64 * 1024,
-    }) catch return null;
+    const result = process.run(allocator, io, argv[0..], 64 * 1024) catch return null;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
-    if (!isExit0(result.term)) return null;
+    if (!process.isExit0(result.term)) return null;
     return parseJstatGc(result.stdout);
 }
 
@@ -116,13 +113,6 @@ fn parseJstatGc(output: []const u8) ?JstatGc {
         .ygc = toCount(ygc),
         .fgc = toCount(fgc),
         .gct_s = if (gct < 0) 0 else gct,
-    };
-}
-
-fn isExit0(term: std.process.Child.Term) bool {
-    return switch (term) {
-        .Exited => |code| code == 0,
-        else => false,
     };
 }
 

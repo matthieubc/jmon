@@ -7,26 +7,26 @@ const types = @import("../types.zig");
 const darwin = @import("darwin.zig");
 const linux = @import("linux.zig");
 
-pub fn readPhysicalFootprintBytes(allocator: std.mem.Allocator, pid: u32) ?u64 {
+pub fn readPhysicalFootprintBytes(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?u64 {
     return switch (builtin.os.tag) {
         .macos => darwin.readPhysicalFootprintBytes(pid),
-        .linux => linux.readPhysicalFootprintBytes(allocator, pid),
+        .linux => linux.readPhysicalFootprintBytes(allocator, io, pid),
         else => null,
     };
 }
 
-pub fn readHostCpuCoreTicks(allocator: std.mem.Allocator) ?types.HostCpuCoreTicksSample {
+pub fn readHostCpuCoreTicks(allocator: std.mem.Allocator, io: std.Io) ?types.HostCpuCoreTicksSample {
     return switch (builtin.os.tag) {
         .macos => darwin.readHostCpuCoreTicks(),
-        .linux => linux.readHostCpuCoreTicks(allocator),
+        .linux => linux.readHostCpuCoreTicks(allocator, io),
         else => null,
     };
 }
 
-pub fn readProcessDiskIoCounters(allocator: std.mem.Allocator, pid: u32) ?types.ProcessDiskIoCounters {
+pub fn readProcessDiskIoCounters(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?types.ProcessDiskIoCounters {
     return switch (builtin.os.tag) {
         .macos => darwin.readProcessDiskIoCounters(pid),
-        .linux => linux.readProcessDiskIoCounters(allocator, pid),
+        .linux => linux.readProcessDiskIoCounters(allocator, io, pid),
         else => null,
     };
 }

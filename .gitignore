@@ -1,4 +1,8 @@
 zig-cache/
 .zig-cache/
 zig-out/
+zig-pkg/
 .DS_Store
+agent/.gradle/
+agent/.gradle-wrapper/
+agent/build/

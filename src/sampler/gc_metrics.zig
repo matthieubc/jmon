@@ -8,6 +8,7 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const jvm_jstat = @import("../jvm/jstat_gc.zig");
+const time = @import("../time.zig");
 
 // Stable GC window used for anomaly scoring and summary fields.
 const gc_window_ms: i64 = 60 * 1000;
@@ -22,7 +23,7 @@ pub fn applyGcWindowMetrics(
     pid: u32,
     gc: jvm_jstat.JstatGc,
 ) void {
-    const now_ms = std.time.milliTimestamp();
+    const now_ms = time.monotonicMillis();
     const point = types.GcPoint{
         .pid = pid,
         .ts_ms = now_ms,

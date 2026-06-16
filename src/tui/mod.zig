@@ -10,6 +10,7 @@ const tui_state = @import("state.zig");
 const terminal = @import("terminal.zig");
 const input = @import("input.zig");
 const render = @import("render.zig");
+const time = @import("../time.zig");
 
 const UiState = tui_state.UiState;
 const Peaks = tui_state.Peaks;
@@ -21,9 +22,9 @@ pub fn writeTextFrame(writer: anytype, snapshot: types.Snapshot, state: *TextRen
     try compact.writeTextFrame(writer, snapshot, state, terminal.terminalCols() orelse 0);
 }
 
-pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !void {
-    const stdout_file = std.fs.File.stdout();
-    const is_tty = stdout_file.isTty();
+pub fn run(allocator: std.mem.Allocator, io: std.Io, writer: anytype, opts: types.Options) !void {
+    const stdout_file = std.Io.File.stdout();
+    const is_tty = try stdout_file.isTty(io);
     terminal.installSignalHandlers();
 
     if (is_tty) {
@@ -40,7 +41,7 @@ pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !
     defer input_mode.restore();
 
     var sample: u64 = 0;
-    var last_render_ms: i64 = std.time.milliTimestamp() - @as(i64, @intCast(opts.interval_ms));
+    var last_render_ms: i64 = time.monotonicMillis() - @as(i64, @intCast(opts.interval_ms));
     var runtime = types.RuntimeState{};
     var peaks = Peaks{};
     var ui = UiState{};
@@ -54,14 +55,15 @@ pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !
         }
 
         sample += 1;
-        const snapshot = sampler.collectSnapshot(allocator, opts.app_pattern, sample, &runtime);
-        try input.pollAndHandleCommands(allocator, &ui, &runtime, &charts);
+        const snapshot = sampler.collectSnapshot(allocator, io, opts.app_pattern, opts.docker_container, opts.db_agent_jar, sample, &runtime);
+        try input.pollAndHandleCommands(allocator, io, &ui, &runtime, &charts);
         if (ui.should_quit) break;
 
         if (ui.reset_requested) {
             peaks = .{};
             gc_metrics.resetGcRuntime(&runtime);
             sampler.resetDiskIoRuntime(&runtime);
+            sampler.resetDbAgentRuntime(&runtime);
             render.resetMemGraph(&ui);
             ui.reset_requested = false;
         }
@@ -77,7 +79,7 @@ pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !
 
         compact.updatePeaks(&peaks, snapshot);
 
-        const now_ms = std.time.milliTimestamp();
+        const now_ms = time.monotonicMillis();
         if (now_ms - last_render_ms >= @as(i64, @intCast(opts.interval_ms))) {
             if (charts.memory) {
                 render.advanceMemGraphFrame(&ui, snapshot);
@@ -92,6 +94,6 @@ pub fn run(allocator: std.mem.Allocator, writer: anytype, opts: types.Options) !
         }
 
         if (opts.once) break;
-        std.Thread.sleep(ui.sample_interval_ms * std.time.ns_per_ms);
+        try std.Io.sleep(io, .fromNanoseconds(ui.sample_interval_ms * std.time.ns_per_ms), .awake);
     }
 }

@@ -3,38 +3,30 @@
 
 const std = @import("std");
 const types = @import("../types.zig");
+const file = @import("../file.zig");
 
-pub fn readPhysicalFootprintBytes(allocator: std.mem.Allocator, pid: u32) ?u64 {
+pub fn readPhysicalFootprintBytes(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?u64 {
     var path_buf: [64]u8 = undefined;
     const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{pid}) catch return null;
 
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
-
-    const contents = file.readToEndAlloc(allocator, 128 * 1024) catch return null;
+    const contents = file.readAbsoluteAlloc(allocator, io, path, 128 * 1024) catch return null;
     defer allocator.free(contents);
 
     return parseVmRssBytes(contents);
 }
 
-pub fn readHostCpuCoreTicks(allocator: std.mem.Allocator) ?types.HostCpuCoreTicksSample {
-    const file = std.fs.openFileAbsolute("/proc/stat", .{}) catch return null;
-    defer file.close();
-
-    const contents = file.readToEndAlloc(allocator, 256 * 1024) catch return null;
+pub fn readHostCpuCoreTicks(allocator: std.mem.Allocator, io: std.Io) ?types.HostCpuCoreTicksSample {
+    const contents = file.readAbsoluteAlloc(allocator, io, "/proc/stat", 256 * 1024) catch return null;
     defer allocator.free(contents);
 
     return parseCpuCoreTicks(contents);
 }
 
-pub fn readProcessDiskIoCounters(allocator: std.mem.Allocator, pid: u32) ?types.ProcessDiskIoCounters {
+pub fn readProcessDiskIoCounters(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?types.ProcessDiskIoCounters {
     var path_buf: [64]u8 = undefined;
     const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/io", .{pid}) catch return null;
 
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
-
-    const contents = file.readToEndAlloc(allocator, 64 * 1024) catch return null;
+    const contents = file.readAbsoluteAlloc(allocator, io, path, 64 * 1024) catch return null;
     defer allocator.free(contents);
 
     return parseProcessDiskIoCounters(contents);

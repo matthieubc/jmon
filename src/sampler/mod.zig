@@ -3,20 +3,29 @@
 
 const std = @import("std");
 const types = @import("../types.zig");
+const db_metrics = @import("../db/mod.zig");
 const gc_metrics = @import("gc_metrics.zig");
 const platform = @import("../platform/mod.zig");
+const jvm_commands = @import("../jvm/commands.zig");
 const jvm_discovery = @import("../jvm/discovery.zig");
 const jvm_heap = @import("../jvm/heap_max.zig");
 const jvm_jstat = @import("../jvm/jstat_gc.zig");
+const time = @import("../time.zig");
+const process = @import("../process.zig");
+
+const db_attach_retry_ms: i64 = 5 * std.time.ms_per_s;
 
 pub fn collectSnapshot(
     allocator: std.mem.Allocator,
+    io: std.Io,
     app_pattern: []const u8,
+    docker_container: ?[]const u8,
+    db_agent_jar: ?[]const u8,
     sample: u64,
     runtime: *types.RuntimeState,
 ) types.Snapshot {
     var snapshot = types.Snapshot{
-        .ts_unix_s = std.time.timestamp(),
+        .ts_unix_s = time.unixSeconds(),
         .sample = sample,
         .state = .SEARCHING,
         .app_pattern = app_pattern,
@@ -47,10 +56,18 @@ pub fn collectSnapshot(
         .io_disk_read_total_bytes = 0,
         .io_disk_write_total_bytes = 0,
         .io_net_bps = 0,
+        .db_available = false,
+        .db_sql_per_s = 0,
+        .db_errors_per_s = 0,
+        .db_in_flight = 0,
+        .db_latency_avg_ms_x10 = 0,
+        .db_latency_p95_ms_x10 = 0,
+        .db_latency_max_ms_x10 = 0,
+        .db_datasource_count = 0,
         .finding_count = 0,
     };
 
-    const target = jvm_discovery.findTargetProcess(allocator, app_pattern, runtime.attached_pid) orelse {
+    const target = jvm_discovery.findTargetProcess(allocator, io, app_pattern, docker_container, runtime.attached_pid) orelse {
         snapshot.state = if (runtime.was_attached) .LOST else .SEARCHING;
         runtime.was_attached = false;
         runtime.attached_pid = null;
@@ -59,6 +76,7 @@ pub fn collectSnapshot(
         runtime.heap_max_bytes = 0;
         runtime.attached_app_len = 0;
         resetDiskIoRuntime(runtime);
+        resetDbAgentRuntime(runtime);
         return snapshot;
     };
 
@@ -66,15 +84,16 @@ pub fn collectSnapshot(
     snapshot.pid = target.pid;
     runtime.attached_pid = target.pid;
     snapshot.attached_app = setAttachedApp(runtime, target.appName());
-    snapshot.mem_max_bytes = readHeapMaxBytesCached(allocator, runtime, target.pid) orelse 0;
+    snapshot.mem_max_bytes = readHeapMaxBytesCached(allocator, io, runtime, target.pid) orelse 0;
     runtime.was_attached = true;
 
-    if (platform.readPhysicalFootprintBytes(allocator, target.pid)) |footprint| {
+    if (platform.readPhysicalFootprintBytes(allocator, io, target.pid)) |footprint| {
         snapshot.mem_physical_footprint_bytes = footprint;
     }
-    populateProcessDiskIoMetrics(allocator, &snapshot, runtime, target.pid);
+    populateProcessDiskIoMetrics(allocator, io, &snapshot, runtime, target.pid);
+    populateDbMetrics(allocator, io, &snapshot, runtime, target.pid, db_agent_jar);
 
-    if (jvm_jstat.readJstatGc(allocator, target.pid)) |gc| {
+    if (jvm_jstat.readJstatGc(allocator, io, target.pid)) |gc| {
         snapshot.mem_used_bytes = gc.heap_used_bytes;
         snapshot.mem_committed_bytes = gc.heap_committed_bytes;
         gc_metrics.applyGcWindowMetrics(&snapshot, runtime, target.pid, gc);
@@ -82,9 +101,9 @@ pub fn collectSnapshot(
         gc_metrics.resetGcRuntime(runtime);
     }
 
-    populateHostCpuCoreMetrics(allocator, &snapshot, runtime);
+    populateHostCpuCoreMetrics(allocator, io, &snapshot, runtime);
 
-    if (readCpuProcessPctX10(allocator, target.pid)) |cpu_x10| {
+    if (readCpuProcessPctX10(allocator, io, target.pid)) |cpu_x10| {
         snapshot.cpu_process_pct_x10 = cpu_x10;
         snapshot.cpu_total_pct = normalizeProcessCpuToMachinePct(cpu_x10, snapshot.cpu_host_core_count);
     }
@@ -95,11 +114,12 @@ pub fn collectSnapshot(
 
 fn populateProcessDiskIoMetrics(
     allocator: std.mem.Allocator,
+    io: std.Io,
     snapshot: *types.Snapshot,
     runtime: *types.RuntimeState,
     pid: u32,
 ) void {
-    const counters = platform.readProcessDiskIoCounters(allocator, pid) orelse {
+    const counters = platform.readProcessDiskIoCounters(allocator, io, pid) orelse {
         runtime.disk_io_prev_valid = false;
         runtime.disk_io_prev_pid = pid;
         runtime.disk_io_total_baseline_valid = false;
@@ -107,7 +127,7 @@ fn populateProcessDiskIoMetrics(
         return;
     };
 
-    const now_ms = std.time.milliTimestamp();
+    const now_ms = time.monotonicMillis();
     if (!runtime.disk_io_total_baseline_valid or runtime.disk_io_total_baseline_pid == null or runtime.disk_io_total_baseline_pid.? != pid) {
         runtime.disk_io_total_baseline_pid = pid;
         runtime.disk_io_total_baseline_read_bytes = counters.read_bytes;
@@ -162,6 +182,65 @@ pub fn resetDiskIoRuntime(runtime: *types.RuntimeState) void {
     runtime.disk_io_total_baseline_write_bytes = 0;
 }
 
+pub fn resetDbAgentRuntime(runtime: *types.RuntimeState) void {
+    runtime.db_agent_loaded_pid = null;
+    runtime.db_agent_last_attempt_pid = null;
+    runtime.db_agent_last_attempt_ts_ms = 0;
+}
+
+fn populateDbMetrics(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    snapshot: *types.Snapshot,
+    runtime: *types.RuntimeState,
+    pid: u32,
+    db_agent_jar: ?[]const u8,
+) void {
+    if (db_metrics.readMetrics(allocator, io, pid)) |metrics| {
+        applyDbMetrics(snapshot, metrics);
+        runtime.db_agent_loaded_pid = pid;
+        return;
+    }
+
+    const jar = db_agent_jar orelse return;
+    if (jar.len == 0) return;
+    if (!shouldAttemptDbAttach(runtime, pid)) return;
+
+    if (!jvm_commands.attachDbAgent(allocator, io, pid, jar)) return;
+    if (db_metrics.readMetrics(allocator, io, pid)) |metrics| {
+        applyDbMetrics(snapshot, metrics);
+        runtime.db_agent_loaded_pid = pid;
+    }
+}
+
+fn shouldAttemptDbAttach(runtime: *types.RuntimeState, pid: u32) bool {
+    if (runtime.db_agent_loaded_pid) |loaded_pid| {
+        if (loaded_pid == pid) return false;
+    }
+
+    const now_ms = time.monotonicMillis();
+    if (runtime.db_agent_last_attempt_pid) |attempt_pid| {
+        if (attempt_pid == pid and (now_ms - runtime.db_agent_last_attempt_ts_ms) < db_attach_retry_ms) {
+            return false;
+        }
+    }
+
+    runtime.db_agent_last_attempt_pid = pid;
+    runtime.db_agent_last_attempt_ts_ms = now_ms;
+    return true;
+}
+
+fn applyDbMetrics(snapshot: *types.Snapshot, metrics: db_metrics.DbMetrics) void {
+    snapshot.db_available = true;
+    snapshot.db_sql_per_s = metrics.sql_per_s;
+    snapshot.db_errors_per_s = metrics.errors_per_s;
+    snapshot.db_in_flight = metrics.in_flight;
+    snapshot.db_latency_avg_ms_x10 = metrics.latency_avg_ms_x10;
+    snapshot.db_latency_p95_ms_x10 = metrics.latency_p95_ms_x10;
+    snapshot.db_latency_max_ms_x10 = metrics.latency_max_ms_x10;
+    snapshot.db_datasource_count = metrics.datasource_count;
+}
+
 fn setAttachedApp(runtime: *types.RuntimeState, app_name: []const u8) ?[]const u8 {
     if (app_name.len == 0) {
         runtime.attached_app_len = 0;
@@ -173,18 +252,14 @@ fn setAttachedApp(runtime: *types.RuntimeState, app_name: []const u8) ?[]const u
     return runtime.attached_app_buf[0..runtime.attached_app_len];
 }
 
-fn readCpuProcessPctX10(allocator: std.mem.Allocator, pid: u32) ?u16 {
+fn readCpuProcessPctX10(allocator: std.mem.Allocator, io: std.Io, pid: u32) ?u16 {
     var pid_buf: [20]u8 = undefined;
     const pid_str = std.fmt.bufPrint(&pid_buf, "{d}", .{pid}) catch return null;
     const argv = [_][]const u8{ "ps", "-p", pid_str, "-o", "%cpu=" };
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = argv[0..],
-        .max_output_bytes = 32 * 1024,
-    }) catch return null;
+    const result = process.run(allocator, io, argv[0..], 32 * 1024) catch return null;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
-    if (!isExit0(result.term)) return null;
+    if (!process.isExit0(result.term)) return null;
 
     const cpu_str = std.mem.trim(u8, result.stdout, " \t\r\n");
     if (cpu_str.len == 0) return null;
@@ -192,7 +267,7 @@ fn readCpuProcessPctX10(allocator: std.mem.Allocator, pid: u32) ?u16 {
     return toPctX10(cpu);
 }
 
-fn readHeapMaxBytesCached(allocator: std.mem.Allocator, runtime: *types.RuntimeState, pid: u32) ?u64 {
+fn readHeapMaxBytesCached(allocator: std.mem.Allocator, io: std.Io, runtime: *types.RuntimeState, pid: u32) ?u64 {
     if (runtime.heap_max_pid) |cached_pid| {
         if (cached_pid == pid and runtime.heap_max_bytes > 0) return runtime.heap_max_bytes;
     }
@@ -200,16 +275,9 @@ fn readHeapMaxBytesCached(allocator: std.mem.Allocator, runtime: *types.RuntimeS
     runtime.heap_max_pid = pid;
     runtime.heap_max_bytes = 0;
 
-    const max_bytes = jvm_heap.readHeapMaxBytesFromPs(allocator, pid) orelse return null;
+    const max_bytes = jvm_heap.readHeapMaxBytesFromPs(allocator, io, pid) orelse return null;
     runtime.heap_max_bytes = max_bytes;
     return max_bytes;
-}
-
-fn isExit0(term: std.process.Child.Term) bool {
-    return switch (term) {
-        .Exited => |code| code == 0,
-        else => false,
-    };
 }
 
 fn toPct(value: f64) u8 {
@@ -240,10 +308,11 @@ fn bytesPerSecond(delta_bytes: u64, dt_ms: i64) u64 {
 
 fn populateHostCpuCoreMetrics(
     allocator: std.mem.Allocator,
+    io: std.Io,
     snapshot: *types.Snapshot,
     runtime: *types.RuntimeState,
 ) void {
-    const sample = platform.readHostCpuCoreTicks(allocator) orelse return;
+    const sample = platform.readHostCpuCoreTicks(allocator, io) orelse return;
     if (sample.len == 0) {
         runtime.host_cpu_prev_valid = false;
         runtime.host_cpu_prev_count = 0;
@@ -287,6 +356,7 @@ fn computeFindingCount(snapshot: types.Snapshot) u32 {
     var findings: u32 = 0;
     if (snapshot.cpu_process_pct_x10 >= 800) findings += 1;
     if (snapshot.gc_time_pct >= 15) findings += 1;
+    if (snapshot.db_available and snapshot.db_errors_per_s > 0) findings += 1;
     if (snapshot.mem_committed_bytes > 0) {
         const mem_pct = (@as(u128, snapshot.mem_used_bytes) * 100) / @as(u128, snapshot.mem_committed_bytes);
         if (mem_pct >= 90) findings += 1;

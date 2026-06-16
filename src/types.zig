@@ -37,6 +37,8 @@ pub const Options = struct {
     interval_ms: u64,
     sample_interval_ms: u64,
     app_pattern: []const u8,
+    docker_container: ?[]const u8,
+    db_agent_jar: ?[]const u8,
     charts: ChartOptions,
 };
 
@@ -74,6 +76,14 @@ pub const Snapshot = struct {
     io_disk_read_total_bytes: u64,
     io_disk_write_total_bytes: u64,
     io_net_bps: u64,
+    db_available: bool,
+    db_sql_per_s: u32,
+    db_errors_per_s: u32,
+    db_in_flight: u32,
+    db_latency_avg_ms_x10: u32,
+    db_latency_p95_ms_x10: u32,
+    db_latency_max_ms_x10: u32,
+    db_datasource_count: u16,
     finding_count: u32,
 };
 
@@ -114,4 +124,7 @@ pub const RuntimeState = struct {
     disk_io_total_baseline_read_bytes: u64 = 0,
     disk_io_total_baseline_write_bytes: u64 = 0,
     disk_io_total_baseline_valid: bool = false,
+    db_agent_loaded_pid: ?u32 = null,
+    db_agent_last_attempt_pid: ?u32 = null,
+    db_agent_last_attempt_ts_ms: i64 = 0,
 };

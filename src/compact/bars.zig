@@ -283,8 +283,8 @@ fn writeMirroredHalf(
     while (i < width) : (i += 1) {
         const fill_start_idx = width - filled;
         const peak_start_idx = width - peak;
-        const in_fill = i >= fill_start_idx;
-        const in_peak = i >= peak_start_idx;
+        const in_fill = if (reverse_gradient) (i >= fill_start_idx) else (i < filled);
+        const in_peak = if (reverse_gradient) (i >= peak_start_idx) else (i < peak);
 
         if (is_tty) {
             if (in_fill) {
